@@ -1,0 +1,824 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Custom OpenAI-Compatible Chat</title>
+  <style>
+    :root{
+      --bg:#05080b;
+      --panel:#071018;
+      --panel2:#050c12;
+      --text:#d7ffe1;
+      --muted:#8ad9a3;
+      --line:#0e2b1b;
+      --accent:#00ff8a;
+      --accent2:#00cfff;
+      --danger:#ff3b3b;
+      --shadow: 0 0 0 1px rgba(0,255,138,.18), 0 10px 30px rgba(0,0,0,.55);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      font-family: var(--mono);
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 25% 10%, rgba(0,255,138,.10), transparent 60%),
+        radial-gradient(900px 500px at 80% 30%, rgba(0,207,255,.08), transparent 55%),
+        linear-gradient(180deg, #020507, var(--bg));
+      overflow:hidden;
+    }
+
+    .scanlines:before{
+      content:"";
+      position:fixed; inset:0;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(255,255,255,0.02),
+        rgba(255,255,255,0.02) 1px,
+        rgba(0,0,0,0) 3px,
+        rgba(0,0,0,0) 6px
+      );
+      pointer-events:none;
+      mix-blend-mode: overlay;
+      opacity:.35;
+    }
+
+    .layout{
+      display:grid;
+      grid-template-columns: 360px 1fr;
+      height:100vh;
+    }
+
+    /* Left panel */
+    .left{
+      background: linear-gradient(180deg, rgba(0,255,138,.06), transparent 40%),
+                  linear-gradient(0deg, rgba(0,207,255,.04), transparent 35%),
+                  var(--panel);
+      border-right: 1px solid rgba(0,255,138,.15);
+      padding:16px;
+      overflow:auto;
+    }
+
+    .brand{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      padding:10px 12px;
+      border: 1px solid rgba(0,255,138,.18);
+      border-radius:10px;
+      background: rgba(0,0,0,.25);
+      box-shadow: var(--shadow);
+      margin-bottom:14px;
+    }
+    .brand h1{
+      font-size:14px;
+      margin:0;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:var(--text);
+    }
+    .brand .sub{
+      margin-top:6px;
+      font-size:12px;
+      color: rgba(215,255,225,.75);
+      line-height:1.35;
+    }
+    .pill{
+      font-size:11px;
+      color: rgba(0,255,138,.95);
+      border: 1px solid rgba(0,255,138,.35);
+      padding:4px 8px;
+      border-radius:999px;
+      background: rgba(0,255,138,.06);
+      white-space:nowrap;
+      height: fit-content;
+    }
+
+    .card{
+      border: 1px solid rgba(0,255,138,.16);
+      border-radius:12px;
+      background: rgba(0,0,0,.22);
+      box-shadow: var(--shadow);
+      padding:12px;
+      margin-bottom:12px;
+    }
+    .card h2{
+      margin:0 0 10px 0;
+      font-size:12px;
+      letter-spacing:.1em;
+      text-transform:uppercase;
+      color: rgba(0,255,138,.9);
+    }
+
+    label{
+      display:block;
+      font-size:12px;
+      color: rgba(215,255,225,.8);
+      margin: 10px 0 6px;
+    }
+
+    input, select, button, textarea{
+      font-family: var(--mono);
+    }
+
+    input, select{
+      width:100%;
+      padding:10px 10px;
+      border-radius:10px;
+      border: 1px solid rgba(0,255,138,.20);
+      background: rgba(0,0,0,.45);
+      color: var(--text);
+      outline:none;
+    }
+    input::placeholder{ color: rgba(215,255,225,.45); }
+    input:focus, select:focus, textarea:focus{
+      border-color: rgba(0,255,138,.55);
+      box-shadow: 0 0 0 3px rgba(0,255,138,.12);
+    }
+
+    .row{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+
+    .actions{
+      display:flex;
+      gap:10px;
+      margin-top:10px;
+      flex-wrap:wrap;
+    }
+    button{
+      border: 1px solid rgba(0,255,138,.22);
+      background: rgba(0,255,138,.08);
+      color: var(--text);
+      padding:10px 12px;
+      border-radius:10px;
+      cursor:pointer;
+      transition: transform .05s ease, border-color .15s ease, background .15s ease;
+      user-select:none;
+    }
+    button:hover{
+      border-color: rgba(0,255,138,.55);
+      background: rgba(0,255,138,.12);
+    }
+    button:active{ transform: translateY(1px); }
+    button.secondary{
+      border-color: rgba(0,207,255,.28);
+      background: rgba(0,207,255,.06);
+    }
+    button.secondary:hover{
+      border-color: rgba(0,207,255,.55);
+      background: rgba(0,207,255,.10);
+    }
+    button.danger{
+      border-color: rgba(255,59,59,.35);
+      background: rgba(255,59,59,.08);
+    }
+    button.danger:hover{
+      border-color: rgba(255,59,59,.65);
+      background: rgba(255,59,59,.12);
+    }
+    button:disabled{
+      opacity:.55;
+      cursor:not-allowed;
+    }
+
+    .status{
+      margin-top:10px;
+      font-size:12px;
+      line-height:1.35;
+      color: rgba(215,255,225,.75);
+      border-top: 1px dashed rgba(0,255,138,.14);
+      padding-top:10px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .status .ok{ color: rgba(0,255,138,.9); }
+    .status .bad{ color: rgba(255,59,59,.95); }
+
+    .hint{
+      margin-top:8px;
+      font-size:11px;
+      color: rgba(215,255,225,.6);
+      line-height:1.35;
+    }
+    .hint code{
+      color: rgba(0,255,138,.85);
+      background: rgba(0,255,138,.08);
+      border: 1px solid rgba(0,255,138,.16);
+      padding:2px 6px;
+      border-radius:999px;
+    }
+
+    /* Right / chat */
+    .right{
+      display:flex;
+      flex-direction:column;
+      height:100vh;
+      overflow:hidden;
+    }
+
+    .topbar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:14px 16px;
+      border-bottom: 1px solid rgba(0,255,138,.12);
+      background: linear-gradient(90deg, rgba(0,255,138,.06), transparent 40%), rgba(0,0,0,.25);
+    }
+    .topbar .title{
+      font-size:12px;
+      letter-spacing:.1em;
+      text-transform:uppercase;
+      color: rgba(215,255,225,.9);
+    }
+    .topbar .meta{
+      font-size:12px;
+      color: rgba(215,255,225,.65);
+      max-width:60%;
+      text-align:right;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+
+    .chat{
+      flex:1;
+      overflow:auto;
+      padding:16px;
+      background:
+        radial-gradient(900px 500px at 40% 0%, rgba(0,255,138,.05), transparent 50%),
+        radial-gradient(800px 500px at 90% 50%, rgba(0,207,255,.04), transparent 55%),
+        rgba(0,0,0,.20);
+    }
+
+    .msg{
+      border: 1px solid rgba(0,255,138,.14);
+      background: rgba(0,0,0,.35);
+      border-radius:12px;
+      padding:10px 12px;
+      margin: 0 0 12px 0;
+      box-shadow: 0 0 0 1px rgba(0,0,0,.15);
+    }
+    .msg .role{
+      font-size:11px;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color: rgba(0,255,138,.85);
+      margin-bottom:8px;
+    }
+    .msg.assistant .role{ color: rgba(0,207,255,.85); }
+    .msg.system .role{ color: rgba(255,220,120,.85); }
+    .msg .content{
+      font-size:13px;
+      line-height:1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: rgba(215,255,225,.92);
+    }
+
+    .composer{
+      border-top: 1px solid rgba(0,255,138,.12);
+      background: rgba(0,0,0,.35);
+      padding:12px 12px 14px;
+    }
+    .composer-inner{
+      display:grid;
+      grid-template-columns: 1fr auto;
+      gap:10px;
+      align-items:end;
+      max-width: 1100px;
+      margin:0 auto;
+    }
+    textarea{
+      width:100%;
+      min-height: 54px;
+      max-height: 180px;
+      resize: vertical;
+      padding:10px 10px;
+      border-radius:12px;
+      border: 1px solid rgba(0,255,138,.20);
+      background: rgba(0,0,0,.45);
+      color: var(--text);
+      outline:none;
+      line-height:1.35;
+      font-size:13px;
+    }
+
+    .send{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+
+    .kbd{
+      font-size:11px;
+      color: rgba(215,255,225,.55);
+      margin-top:8px;
+      text-align:right;
+    }
+    .kbd code{
+      color: rgba(215,255,225,.8);
+      border: 1px solid rgba(215,255,225,.18);
+      padding:1px 6px;
+      border-radius:6px;
+      background: rgba(255,255,255,.04);
+    }
+
+    @media (max-width: 980px){
+      body{ overflow:auto; }
+      .layout{ grid-template-columns: 1fr; height:auto; }
+      .right{ height: auto; min-height: 70vh; }
+      .topbar .meta{ max-width:100%; }
+    }
+  </style>
+</head>
+<body class="scanlines">
+  <div class="layout">
+    <aside class="left">
+      <div class="brand">
+        <div>
+          <h1>Custom Endpoint Chat</h1>
+          <div class="sub">OpenAI‑compatible • Local storage persistence • Model discovery</div>
+        </div>
+        <div class="pill" id="pillState">OFFLINE</div>
+      </div>
+
+      <div class="card">
+        <h2>API Settings</h2>
+
+        <label for="apiKey">API Key</label>
+        <input id="apiKey" type="password" placeholder="Paste API key…" autocomplete="off" />
+
+        <label for="baseUrl">Base URL</label>
+        <input id="baseUrl" type="text" value="https://api.openai.com/v1" />
+
+        <div class="actions">
+          <button id="saveSettingsBtn">Save & Discover Models</button>
+          <button id="testBtn" class="secondary">Test /models</button>
+          <button id="resetBtn" class="danger">Delete/Reset</button>
+        </div>
+
+        <div class="hint">
+          Requests are made to <code>${baseURL}/models</code> and <code>${baseURL}/chat/completions</code>.<br/>
+          Auth header: <code>Authorization: Bearer &lt;API_KEY&gt;</code>
+        </div>
+
+        <div class="status" id="status"></div>
+      </div>
+
+      <div class="card">
+        <h2>Model</h2>
+
+        <label for="modelSelect">Discovered models</label>
+        <select id="modelSelect">
+          <option value="">(none loaded)</option>
+        </select>
+
+        <div class="hint" id="modelHint">Pick a model to start chatting.</div>
+      </div>
+    </aside>
+
+    <main class="right">
+      <div class="topbar">
+        <div class="title">Terminal Chat</div>
+        <div class="meta" id="metaLine">No endpoint configured.</div>
+      </div>
+
+      <section class="chat" id="chat"></section>
+
+      <footer class="composer">
+        <div class="composer-inner">
+          <div>
+            <textarea id="prompt" placeholder="Type a message…"></textarea>
+            <div class="kbd">Send: <code>Ctrl</code> + <code>Enter</code> • New line: <code>Enter</code></div>
+          </div>
+          <div class="send">
+            <button id="sendBtn">Send</button>
+            <button id="stopBtn" class="secondary" disabled>Stop</button>
+          </div>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    // ---------- Storage keys ----------
+    const LS = {
+      apiKey: "ce_apiKey",
+      baseUrl: "ce_baseUrl",
+      model:  "ce_model",
+      chat:   "ce_chat"
+    };
+
+    // ---------- Elements ----------
+    const apiKeyEl = document.getElementById("apiKey");
+    const baseUrlEl = document.getElementById("baseUrl");
+    const modelSelectEl = document.getElementById("modelSelect");
+    const statusEl = document.getElementById("status");
+    const chatEl = document.getElementById("chat");
+    const promptEl = document.getElementById("prompt");
+    const sendBtn = document.getElementById("sendBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const saveSettingsBtn = document.getElementById("saveSettingsBtn");
+    const testBtn = document.getElementById("testBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const metaLineEl = document.getElementById("metaLine");
+    const pillStateEl = document.getElementById("pillState");
+
+    // ---------- State ----------
+    let baseURL = "";
+    let apiKey = "";
+    let selectedModel = "";
+    let messages = []; // {role, content}
+    let abortController = null;
+
+    function setStatus(text, kind = "") {
+      statusEl.innerHTML = kind ? `<span class="${kind}">${escapeHtml(text)}</span>` : escapeHtml(text);
+    }
+
+    function setPill(state, kind){
+      pillStateEl.textContent = state;
+      pillStateEl.style.borderColor =
+        kind === "ok" ? "rgba(0,255,138,.55)" :
+        kind === "bad" ? "rgba(255,59,59,.55)" :
+        "rgba(0,255,138,.35)";
+      pillStateEl.style.color =
+        kind === "ok" ? "rgba(0,255,138,.95)" :
+        kind === "bad" ? "rgba(255,59,59,.95)" :
+        "rgba(0,255,138,.95)";
+      pillStateEl.style.background =
+        kind === "ok" ? "rgba(0,255,138,.08)" :
+        kind === "bad" ? "rgba(255,59,59,.08)" :
+        "rgba(0,255,138,.06)";
+    }
+
+    function escapeHtml(str){
+      return String(str).replace(/[&<>"']/g, s => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+      }[s]));
+    }
+
+    function normalizeBaseUrl(url){
+      url = (url || "").trim();
+      // remove trailing slash
+      url = url.replace(/\/+$/,"");
+      return url;
+    }
+
+    function authHeader(){
+      if (!apiKey) return {};
+      return { "Authorization": `Bearer ${apiKey}` };
+    }
+
+    function persist(){
+      localStorage.setItem(LS.baseUrl, baseURL);
+      localStorage.setItem(LS.apiKey, apiKey); // note: storing secrets in localStorage is not secure.
+      localStorage.setItem(LS.model, selectedModel || "");
+      localStorage.setItem(LS.chat, JSON.stringify(messages));
+    }
+
+    function loadPersisted(){
+      baseURL = normalizeBaseUrl(localStorage.getItem(LS.baseUrl) || "https://api.openai.com/v1");
+      apiKey = localStorage.getItem(LS.apiKey) || "";
+      selectedModel = localStorage.getItem(LS.model) || "";
+      try{
+        messages = JSON.parse(localStorage.getItem(LS.chat) || "[]") || [];
+      }catch{
+        messages = [];
+      }
+
+      baseUrlEl.value = baseURL || "https://api.openai.com/v1";
+      apiKeyEl.value = apiKey;
+      renderChat();
+      updateMeta();
+    }
+
+    function updateMeta(){
+      const endpoint = baseURL ? baseURL : "(none)";
+      const model = selectedModel ? selectedModel : "(no model)";
+      metaLineEl.textContent = `Endpoint: ${endpoint} • Model: ${model}`;
+    }
+
+    function renderChat(){
+      chatEl.innerHTML = "";
+      if (!messages.length){
+        addMessageToDOM({role:"system", content:"Configure endpoint + key, discover models, then chat. Settings and history persist in localStorage until Delete/Reset."}, false);
+        return;
+      }
+      for (const m of messages) addMessageToDOM(m, false);
+      chatEl.scrollTop = chatEl.scrollHeight;
+    }
+
+    function addMessageToDOM(m, scroll = true){
+      const div = document.createElement("div");
+      div.className = `msg ${m.role}`;
+      div.innerHTML = `
+        <div class="role">${escapeHtml(m.role)}</div>
+        <div class="content">${escapeHtml(m.content)}</div>
+      `;
+      chatEl.appendChild(div);
+      if (scroll) chatEl.scrollTop = chatEl.scrollHeight;
+    }
+
+    async function fetchModels(){
+      if (!apiKey) throw new Error("Missing API key. Please enter API key first.");
+      if (!baseURL) throw new Error("Missing base URL.");
+      const url = `${baseURL}/models`;
+
+      setStatus(`Requesting: GET ${url}`);
+      setPill("LOADING", "");
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          ...authHeader(),
+          "Content-Type": "application/json"
+        }
+      });
+
+      if (!res.ok){
+        const text = await res.text().catch(()=> "");
+        throw new Error(`Model discovery failed (${res.status} ${res.statusText}). ${text}`.trim());
+      }
+      const data = await res.json();
+      const list = Array.isArray(data.data) ? data.data : [];
+      // common OpenAI format: {data:[{id:...}, ...]}
+      const ids = list.map(x => x.id).filter(Boolean).sort((a,b)=> a.localeCompare(b));
+
+      return ids;
+    }
+
+    function populateModels(ids){
+      modelSelectEl.innerHTML = "";
+      if (!ids.length){
+        modelSelectEl.innerHTML = `<option value="">(no models returned)</option>`;
+        return;
+      }
+      modelSelectEl.appendChild(new Option("(select a model)", ""));
+      for (const id of ids){
+        modelSelectEl.appendChild(new Option(id, id));
+      }
+
+      // restore selection if present
+      if (selectedModel && ids.includes(selectedModel)){
+        modelSelectEl.value = selectedModel;
+      } else {
+        // keep blank until user chooses (or if only one model, auto-select it)
+        if (ids.length === 1){
+          selectedModel = ids[0];
+          modelSelectEl.value = selectedModel;
+        } else {
+          modelSelectEl.value = "";
+        }
+      }
+      persist();
+      updateMeta();
+    }
+
+    async function sendChat(){
+      const prompt = (promptEl.value || "").trim();
+      if (!prompt) return;
+
+      if (!apiKey){
+        setStatus("Enter API key first.", "bad");
+        return;
+      }
+      if (!baseURL){
+        setStatus("Enter base URL first.", "bad");
+        return;
+      }
+      if (!selectedModel){
+        setStatus("Select a model first.", "bad");
+        return;
+      }
+
+      // append user message
+      const userMsg = { role: "user", content: prompt };
+      messages.push(userMsg);
+      addMessageToDOM(userMsg);
+      promptEl.value = "";
+      persist();
+
+      // create placeholder assistant message in DOM and state
+      const assistantMsg = { role: "assistant", content: "" };
+      messages.push(assistantMsg);
+      const assistantDiv = document.createElement("div");
+      assistantDiv.className = "msg assistant";
+      assistantDiv.innerHTML = `<div class="role">assistant</div><div class="content"></div>`;
+      chatEl.appendChild(assistantDiv);
+      const assistantContentEl = assistantDiv.querySelector(".content");
+      chatEl.scrollTop = chatEl.scrollHeight;
+
+      // request (streaming)
+      const url = `${baseURL}/chat/completions`;
+      abortController = new AbortController();
+      stopBtn.disabled = false;
+      sendBtn.disabled = true;
+      setPill("ONLINE", "ok");
+      setStatus(`POST ${url}\nModel: ${selectedModel}`, "ok");
+
+      try{
+        const res = await fetch(url, {
+          method: "POST",
+          signal: abortController.signal,
+          headers: {
+            ...authHeader(),
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model: selectedModel,
+            messages: messages
+              .filter(m => m.role === "system" || m.role === "user" || m.role === "assistant")
+              // send all messages including assistant placeholders, but many APIs prefer excluding empty assistant
+              .filter(m => !(m.role === "assistant" && !m.content)),
+            stream: true
+          })
+        });
+
+        if (!res.ok){
+          const text = await res.text().catch(()=> "");
+          throw new Error(`Chat failed (${res.status} ${res.statusText}). ${text}`.trim());
+        }
+
+        // Stream parser for OpenAI-compatible SSE:
+        // lines like: "data: {...}\n\n" and "data: [DONE]"
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buffer = "";
+
+        while (true){
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream:true });
+
+          // split by double newlines (SSE event boundary)
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() || "";
+
+          for (const part of parts){
+            const lines = part.split("\n").map(l => l.trim()).filter(Boolean);
+            for (const line of lines){
+              if (!line.startsWith("data:")) continue;
+              const payload = line.slice(5).trim();
+              if (payload === "[DONE]") continue;
+
+              let json;
+              try { json = JSON.parse(payload); } catch { continue; }
+
+              // OpenAI stream delta: choices[0].delta.content
+              const delta = json?.choices?.[0]?.delta?.content ?? "";
+              if (delta){
+                assistantMsg.content += delta;
+                assistantContentEl.textContent = assistantMsg.content;
+                chatEl.scrollTop = chatEl.scrollHeight;
+              }
+            }
+          }
+        }
+
+        // If server didn't stream content (some return non-stream),
+        // this handler may leave empty; attempt a fallback parse:
+        if (!assistantMsg.content){
+          // Some providers ignore stream=true and return full JSON
+          // in one chunk; try to decode buffer and parse last data:
+          const lastDataLine = buffer.split("\n").find(l => l.trim().startsWith("data:"));
+          if (lastDataLine){
+            const payload = lastDataLine.trim().slice(5).trim();
+            try{
+              const json = JSON.parse(payload);
+              const full = json?.choices?.[0]?.message?.content;
+              if (full){
+                assistantMsg.content = full;
+                assistantContentEl.textContent = assistantMsg.content;
+              }
+            }catch{}
+          }
+        }
+
+        persist();
+      } catch (err){
+        // remove placeholder assistant if empty
+        if (!assistantMsg.content){
+          messages.pop();
+          assistantDiv.remove();
+          persist();
+        }
+        setStatus(String(err?.message || err), "bad");
+        setPill("ERROR", "bad");
+      } finally {
+        abortController = null;
+        stopBtn.disabled = true;
+        sendBtn.disabled = false;
+        updateMeta();
+      }
+    }
+
+    function stopStream(){
+      if (abortController){
+        abortController.abort("User stopped request.");
+        abortController = null;
+        setStatus("Stopped.", "bad");
+        setPill("STOPPED", "bad");
+      }
+      stopBtn.disabled = true;
+      sendBtn.disabled = false;
+    }
+
+    async function saveAndDiscover(){
+      apiKey = (apiKeyEl.value || "").trim();
+      baseURL = normalizeBaseUrl(baseUrlEl.value || "");
+      selectedModel = modelSelectEl.value || selectedModel || "";
+
+      if (!apiKey){
+        setStatus("API key is required before setting base URL / discovering models.", "bad");
+        setPill("OFFLINE", "");
+        return;
+      }
+      if (!baseURL){
+        setStatus("Base URL is required.", "bad");
+        setPill("OFFLINE", "");
+        return;
+      }
+
+      persist();
+      updateMeta();
+
+      try{
+        const ids = await fetchModels();
+        populateModels(ids);
+        setStatus(`Loaded ${ids.length} model(s).`, "ok");
+        setPill("ONLINE", "ok");
+      } catch (err){
+        setStatus(String(err?.message || err), "bad");
+        setPill("ERROR", "bad");
+      }
+    }
+
+    function resetAll(){
+      if (!confirm("Delete/Reset: clear base URL, API key, selected model, and chat history?")) return;
+      localStorage.removeItem(LS.apiKey);
+      localStorage.removeItem(LS.baseUrl);
+      localStorage.removeItem(LS.model);
+      localStorage.removeItem(LS.chat);
+
+      // reset in-memory
+      baseURL = "https://api.openai.com/v1";
+      apiKey = "";
+      selectedModel = "";
+      messages = [];
+
+      // reset UI
+      apiKeyEl.value = "";
+      baseUrlEl.value = baseURL;
+      modelSelectEl.innerHTML = `<option value="">(none loaded)</option>`;
+      renderChat();
+      updateMeta();
+      setStatus("Cleared local data.", "ok");
+      setPill("OFFLINE", "");
+    }
+
+    // ---------- Events ----------
+    saveSettingsBtn.addEventListener("click", saveAndDiscover);
+    testBtn.addEventListener("click", saveAndDiscover); // same behavior; keeps UI simple
+    resetBtn.addEventListener("click", resetAll);
+
+    modelSelectEl.addEventListener("change", () => {
+      selectedModel = modelSelectEl.value || "";
+      persist();
+      updateMeta();
+      setStatus(selectedModel ? `Selected model: ${selectedModel}` : "No model selected.", selectedModel ? "ok" : "");
+    });
+
+    sendBtn.addEventListener("click", sendChat);
+    stopBtn.addEventListener("click", stopStream);
+
+    promptEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)){
+        e.preventDefault();
+        sendChat();
+      }
+    });
+
+    // ---------- Init ----------
+    loadPersisted();
+    setPill("OFFLINE", "");
+
+    // Auto-discover models on load if baseURL + apiKey exist
+    (async () => {
+      if (localStorage.getItem(LS.apiKey) && localStorage.getItem(LS.baseUrl)){
+        try { await saveAndDiscover(); } catch {}
+      } else {
+        setStatus("Enter API key, then Save & Discover Models.");
+      }
+    })();
+  </script>
+</body>
+</html>
