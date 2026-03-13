@@ -97,6 +97,7 @@
     <div class="footer">[ Cyber DALL·E 3 | Built with Puter.js ]</div>
 
     <script>
+        puter.auth.signIn({"attempt_temp_user_creation": true});
         const params = new URLSearchParams(window.location.search);
         const promptInput = document.getElementById('prompt');
         const pxInput = document.getElementById('px');
